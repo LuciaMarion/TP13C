@@ -60,7 +60,7 @@ curl http://127.0.0.1:9090/api/v1/targets
 curl http://127.0.0.1:3000/api/health
 ```
 
-Grafana queda accesible en `http://127.0.0.1:3000` (usuario `admin`, contraseña definida en `guia-08/k8s/monitoring/08-grafana.yaml`).
+Grafana queda accesible en `http://127.0.0.1:3000`.
 
 ## Sprint 3: CI/CD y Preparación de OWASP ZAP
 
