@@ -1,0 +1,73 @@
+name: TP13C CI CD and ZAP
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validar Python y shell
+        run: |
+          python -m compileall -q guia-06/app/backend/app.py
+          bash -n scripts/*.sh
+
+  test:
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - name: Construir imágenes como prueba
+        run: |
+          docker build -t notes-backend:test guia-06/app/backend
+          docker build -t notes-frontend:test guia-06/app/frontend
+
+  build_push:
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: guia-06/app/backend
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/notes-backend:${{ github.sha }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: guia-06/app/frontend
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/notes-frontend:${{ github.sha }}
+
+  zap:
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instalar k3d
+        run: curl --fail --silent https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+      - name: Crear clúster y desplegar
+        run: |
+          chmod +x scripts/*.sh
+          ./scripts/create-cluster.sh
+          ./scripts/build-and-deploy.sh
+      - name: Ejecutar ZAP contra el clúster local
+        run: |
+          kubectl apply -f guia-13/k8s/04-zap-job.yaml
+          kubectl wait --for=condition=complete job/zap-security-scan -n devops-portfolio --timeout=12m
+      - name: Subir reportes ZAP
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-kubernetes-reports
+          path: guia-13/reportes/

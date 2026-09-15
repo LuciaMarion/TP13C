@@ -1,0 +1,47 @@
+#!/bin/bash
+
+set -uo pipefail
+ERRORS=0
+ok()   { echo "  [OK]   $1"; }
+fail() { echo "  [FAIL] $1"; ERRORS=$((ERRORS+1)); }
+
+echo "=== Verificación del stack de monitoreo ==="
+echo ""
+
+echo "--- Servicios (Pods) ---"
+for app in backend prometheus grafana node-exporter cadvisor; do
+    # Busca el pod por su label en TODOS los namespaces del clúster
+    ST=$(kubectl get pods --all-namespaces -l app=$app --field-selector=status.phase=Running -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "DOWN")
+    
+    # Si no lo encuentra como app=backend, prueba buscarlo como app=flask-app
+    if [ "$ST" = "DOWN" ] && [ "$app" = "backend" ]; then
+        ST=$(kubectl get pods --all-namespaces -l app=flask-app --field-selector=status.phase=Running -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "DOWN")
+    fi
+
+    [ "$ST" = "Running" ] && ok "$app → UP" || fail "$app → $ST"
+done
+
+echo ""
+echo "--- Endpoints ---"
+for url in "http://localhost:9090 Prometheus" "http://localhost:3000 Grafana"; do
+    TARGET=$(echo $url | awk '{print $1}')
+    NAME=$(echo $url | awk '{print $2}')
+    CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 "$TARGET" || echo "000")
+    [ "$CODE" = "200" ] || [ "$CODE" = "302" ] && ok "$NAME → UP (HTTP $CODE)" || fail "$NAME → DOWN"
+done
+
+echo ""
+echo "--- Targets en Prometheus ---"
+python3 -c '
+import urllib.request, json
+try:
+    data = json.loads(urllib.request.urlopen("http://localhost:9090/api/v1/targets", timeout=3).read())
+    for t in data["data"]["activeTargets"]:
+        job, health = t["labels"].get("job","?"), t["health"]
+        print(f"  [\033[32mOK\033[0m]   {job} → {health.upper()}" if health == "up" else f"  [FAIL] {job} → {health.upper()}")
+except Exception as e:
+    print(f"  [FAIL] No se pudo conectar a Prometheus")
+'
+
+echo ""
+[ "$ERRORS" -eq 0 ] && echo "Stack de monitoreo 100% UP"

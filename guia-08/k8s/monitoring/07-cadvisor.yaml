@@ -22,6 +22,7 @@ spec:
           args:
             - --docker_only=false
             - --housekeeping_interval=15s
+            - --containerd=/run/k3s/containerd/containerd.sock
           ports:
             - name: metrics
               containerPort: 8080
@@ -52,7 +53,7 @@ spec:
             path: /sys
         - name: var-lib-docker
           hostPath:
-            path: /var/lib/docker
+            path: /run/k3s/containerd
         - name: dev-disk
           hostPath:
             path: /dev/disk
